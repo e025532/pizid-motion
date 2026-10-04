@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#071b22">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+  <meta name="description" content="Tableau de bord personnel Pizid Motion : sorties GPS Health Connect, progression, records, itinéraires, allure et fréquence cardiaque.">
+  <title>Pizid Motion</title>
+  <link rel="alternate" type="application/json" href="/api/v1/dashboard/summary?days=90" title="Données du tableau de bord Pizid Motion">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/assets/app.css?v=9">
+</head>
+<body>
+  <!-- AUTH_FORM_START -->
+  <div id="login" class="login-shell hidden">
+    <section class="login-card">
+      <div class="brand-mark large">P</div>
+      <p class="eyebrow">TON ESPACE PERSONNEL</p>
+      <h1>Pizid <span>Motion</span></h1>
+      <p class="muted">Tes sorties, ta progression et tes itinéraires réunis au même endroit.</p>
+      <form id="login-form">
+        <label for="password">Mot de passe</label>
+        <input id="password" type="password" autocomplete="current-password" required autofocus>
+        <button class="primary wide" type="submit">Accéder au tableau de bord <span>→</span></button>
+        <p id="login-error" class="error" aria-live="polite"></p>
+      </form>
+    </section>
+  </div>
+  <!-- AUTH_FORM_END -->
+
+  <div id="app" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="Pizid Motion"><span class="brand-mark">P</span><strong>Pizid<br><em>Motion</em></strong></a>
+      <nav id="main-nav">
+        <a href="#dashboard" data-view="dashboard"><span>◫</span> Vue d’ensemble</a>
+        <a href="#health" data-view="health"><span>♥</span> Santé</a>
+        <a href="#activities" data-view="activities"><span>↗</span> Mes sorties</a>
+        <a href="#progress" data-view="progress"><span>⌁</span> Progression</a>
+        <a href="#records" data-view="records"><span>◇</span> Records</a>
+        <a href="#routes" data-view="routes"><span>⌖</span> Itinéraires</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sync-state"><i></i><span>Données personnelles<br><small>Health Connect + Google Health</small></span></div>
+        <button id="logout" class="ghost">Se déconnecter</button>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <p id="today" class="eyebrow"></p>
+          <h2 id="page-title">Vue d’ensemble</h2>
+          <p id="sync-freshness" class="sync-freshness" role="status">Dernière synchronisation : chargement…</p>
+        </div>
+        <div class="top-actions">
+          <select id="period" aria-label="Période"><option value="28">4 semaines</option><option value="90" selected>3 mois</option><option value="180">6 mois</option><option value="365">1 an</option></select>
+          <button id="refresh" class="icon-button" title="Actualiser">↻</button>
+          <div class="avatar">PP</div>
+        </div>
+      </header>
+      <div id="content" class="content"><div class="loading-card"><span class="loader"></span>Analyse de tes données…</div></div>
+    </main>
+
+    <nav class="mobile-nav">
+      <a href="#dashboard" data-view="dashboard">◫<small>Accueil</small></a>
+      <a href="#health" data-view="health">♥<small>Santé</small></a>
+      <a href="#activities" data-view="activities">↗<small>Sorties</small></a>
+      <a href="#progress" data-view="progress">⌁<small>Progrès</small></a>
+      <a href="#routes" data-view="routes">⌖<small>Routes</small></a>
+    </nav>
+  </div>
+
+  <div id="activity-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel"><button class="modal-close" aria-label="Fermer">×</button><div id="activity-detail"></div></div>
+  </div>
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/assets/app.js?v=17" defer></script>
+</body>
+</html>

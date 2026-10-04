@@ -1,0 +1,56 @@
+{
+  "batch_id": "integration-test-001",
+  "sent_at": "2026-09-12T17:30:00+02:00",
+  "records": [
+    {
+      "type": "weight",
+      "id": "integration-test-weight-001",
+      "kind": "instant",
+      "last_modified_at": "2026-09-12T17:29:00+02:00",
+      "start_at": "2026-09-12T17:28:00+02:00",
+      "local_date": "2026-09-12",
+      "start_zone_offset_seconds": 7200,
+      "end_zone_offset_seconds": 7200,
+      "source": {
+        "package_name": "org.pizid.healthconnect.test",
+        "app_name": "Health Connect API test"
+      },
+      "payload": {
+        "weight": 81500.0,
+        "unit": "grams",
+        "test": true
+      }
+    },
+    {
+      "type": "heart_rate",
+      "id": "integration-test-heart-rate-001",
+      "kind": "interval",
+      "start_at": "2026-09-12T17:25:00+02:00",
+      "end_at": "2026-09-12T17:25:10+02:00",
+      "local_date": "2026-09-12",
+      "source": {
+        "package_name": "org.pizid.healthconnect.test",
+        "app_name": "Health Connect API test"
+      },
+      "payload": {
+        "test": true
+      },
+      "samples": [
+        {
+          "type": "heart_rate",
+          "at": "2026-09-12T17:25:00+02:00",
+          "value": 72
+        },
+        {
+          "type": "heart_rate",
+          "at": "2026-09-12T17:25:05+02:00",
+          "value": 74
+        }
+      ]
+    }
+  ],
+  "deletions": [],
+  "cursors": {
+    "weight": "integration-test-cursor"
+  }
+}

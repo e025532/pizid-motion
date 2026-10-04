@@ -1,0 +1,348 @@
+openapi: 3.1.0
+info:
+  title: Health Connect Sync API
+  version: 1.0.0
+servers:
+  - url: https://health.home.pizid.org/api/v1
+paths:
+  /health:
+    get:
+      summary: Public service health check
+      responses:
+        "200":
+          description: Service ready
+  /dashboard/health:
+    get:
+      summary: Return every Health Connect dashboard metric grouped by section
+      parameters:
+        - $ref: "#/components/parameters/Days"
+      responses:
+        "200":
+          description: Daily series for all health indicators
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_version:
+                    type: string
+                  period_days:
+                    type: integer
+                  generated_at:
+                    type: string
+                    format: date-time
+                  sections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HealthSection"
+  /dashboard/health/catalog:
+    get:
+      summary: List every available health indicator and its endpoint
+      responses:
+        "200":
+          description: Health indicator catalog
+  /dashboard/health/{metricId}:
+    get:
+      summary: Return one health indicator and its daily time series
+      parameters:
+        - name: metricId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: weight
+        - $ref: "#/components/parameters/Days"
+      responses:
+        "200":
+          description: One health indicator
+        "404":
+          description: Unknown indicator
+  /dashboard/activities/{id}/cadence:
+    get:
+      summary: Return the lightweight cadence series for one GPS activity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cadence points and statistics without the GPS route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityCadence"
+        "404":
+          description: Activity not found
+  /sync/status:
+    get:
+      summary: Return the authenticated device and its latest batch
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Synchronization status
+        "401":
+          description: Invalid or missing device token
+  /sync/batches:
+    post:
+      summary: Import an idempotent Health Connect batch
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncBatch"
+      responses:
+        "201":
+          description: Batch imported
+        "200":
+          description: Identical batch replayed without another import
+        "409":
+          description: Batch identifier reused with different content
+        "422":
+          description: Invalid batch
+  /sync/renpho:
+    post:
+      summary: Import a RENPHO CSV export shared by the Android application
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, content_base64]
+              properties:
+                filename:
+                  type: string
+                  maxLength: 255
+                mime_type:
+                  type: string
+                content_base64:
+                  type: string
+                  contentEncoding: base64
+      responses:
+        "201":
+          description: RENPHO measurements inserted or updated idempotently
+        "401":
+          description: Invalid or missing device token
+        "413":
+          description: Export larger than 5 MB
+        "422":
+          description: Unsupported or invalid RENPHO export
+components:
+  parameters:
+    Days:
+      name: days
+      in: query
+      description: Number of historical days to include
+      schema:
+        type: integer
+        minimum: 7
+        maximum: 1460
+        default: 90
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    HealthSection:
+      type: object
+      required: [id, title, metrics]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthMetric"
+    HealthMetric:
+      type: object
+      required: [id, label, unit, series]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        decimals:
+          type: integer
+        latest:
+          oneOf:
+            - $ref: "#/components/schemas/HealthPoint"
+            - type: "null"
+        change:
+          type: [number, "null"]
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthPoint"
+    HealthPoint:
+      type: object
+      required: [date, value]
+      properties:
+        date:
+          type: string
+          format: date
+        value:
+          type: number
+    ActivityCadence:
+      type: object
+      required: [activity_id, start_at, end_at, unit, point_count, cadence_stats, cadence]
+      properties:
+        activity_id:
+          type: string
+        title:
+          type: [string, "null"]
+        exercise_type:
+          type: integer
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        unit:
+          type: string
+          const: steps_per_minute
+        point_count:
+          type: integer
+        cadence_stats:
+          type: object
+          properties:
+            average:
+              type: [number, "null"]
+            maximum:
+              type: [number, "null"]
+        cadence:
+          type: array
+          items:
+            type: object
+            required: [time, value]
+            properties:
+              time:
+                type: string
+                format: date-time
+              value:
+                type: number
+    SyncBatch:
+      type: object
+      required: [batch_id, records, deletions]
+      properties:
+        batch_id:
+          type: string
+          maxLength: 128
+        sent_at:
+          type: string
+          format: date-time
+        records:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/Record"
+        deletions:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/Deletion"
+        cursors:
+          type: object
+          additionalProperties:
+            type: string
+    Record:
+      type: object
+      required: [type, id, payload]
+      properties:
+        type:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,99}$"
+        id:
+          type: string
+          maxLength: 255
+        kind:
+          enum: [instant, interval]
+        last_modified_at:
+          type: string
+          format: date-time
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        local_date:
+          type: string
+          format: date
+        start_zone_offset_seconds:
+          type: integer
+        end_zone_offset_seconds:
+          type: integer
+        recording_method:
+          type: integer
+        client_record_id:
+          type: string
+        client_record_version:
+          type: string
+        source:
+          type: object
+          properties:
+            package_name:
+              type: string
+            app_name:
+              type: string
+        payload:
+          type: object
+          additionalProperties: true
+        samples:
+          type: array
+          maxItems: 20000
+          items:
+            $ref: "#/components/schemas/Sample"
+    Sample:
+      type: object
+      properties:
+        type:
+          type: string
+        at:
+          type: string
+          format: date-time
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        value:
+          type: number
+        value_2:
+          type: number
+        category:
+          type: integer
+        latitude:
+          type: number
+        longitude:
+          type: number
+        altitude_m:
+          type: number
+      additionalProperties: true
+    Deletion:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        deleted_at:
+          type: string
+          format: date-time

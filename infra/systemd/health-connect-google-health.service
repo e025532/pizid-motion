@@ -1,0 +1,14 @@
+[Unit]
+Description=Synchronisation Google Health vers Pizid Motion
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+SupplementaryGroups=healthconnect
+ExecStart=/usr/bin/php /var/www/health-connect/bin/google-health.php sync
+Nice=10
+PrivateTmp=true
+NoNewPrivileges=true

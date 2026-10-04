@@ -1,0 +1,11 @@
+[Unit]
+Description=Synchronisation horaire Google Health vers Pizid Motion
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=5m
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target
