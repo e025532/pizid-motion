@@ -24,6 +24,23 @@ Web orienté santé et activités sportives avec traces GPS.
   cardiaque, zones, kilomètres intermédiaires, records et parcours similaires ;
 - API JSON documentée avec OpenAPI.
 
+## Aperçu de l’interface
+
+Les captures ci-dessous utilisent uniquement des données fictives et servent à
+illustrer les principales vues de Pizid Motion.
+
+### Vue d’ensemble
+
+![Vue d’ensemble fictive du dashboard Pizid Motion](docs/screenshots/dashboard-overview.png)
+
+### Détail d’une activité
+
+![Détail fictif d’une activité dans Pizid Motion](docs/screenshots/activity-detail.png)
+
+### Vue santé
+
+![Vue santé fictive dans Pizid Motion](docs/screenshots/health-overview.png)
+
 ## Architecture
 
 ```mermaid
