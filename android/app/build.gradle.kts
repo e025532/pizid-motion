@@ -2,6 +2,11 @@ plugins {
     id("com.android.application")
 }
 
+val apiBaseUrl = providers.gradleProperty("PIZID_API_BASE_URL")
+    .orElse(providers.environmentVariable("PIZID_API_BASE_URL"))
+    .orElse("https://health.example.org/api/v1")
+    .get()
+
 android {
     namespace = "org.pizid.healthconnectsync"
     compileSdk = 37
@@ -14,7 +19,8 @@ android {
         versionName = "0.4.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "API_BASE_URL", "\"https://health.home.pizid.org/api/v1\"")
+        val escapedApiBaseUrl = apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "API_BASE_URL", "\"$escapedApiBaseUrl\"")
     }
 
     buildFeatures {

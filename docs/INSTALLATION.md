@@ -1,15 +1,15 @@
 # Installation du serveur
 
-Ce guide cible Debian 13 avec Nginx, PHP 8.4 et PostgreSQL 17. Adaptez les noms
-de paquets aux versions de votre distribution.
+Ce guide cible une distribution Debian récente avec Nginx, PHP-FPM et
+PostgreSQL. Adapte les noms de paquets et versions à ta distribution.
 
 ## 1. Prérequis
 
-- un nom DNS pointant vers le reverse proxy ;
+- un nom DNS pointant vers ton serveur ou reverse proxy ;
 - un certificat TLS valide ;
-- un serveur non exposé directement sur le port PostgreSQL ;
+- PostgreSQL non exposé directement à Internet ;
 - PHP avec `pdo_pgsql`, `curl`, `mbstring` et Sodium ;
-- au moins quelques gigaoctets libres pour les données et sauvegardes.
+- suffisamment d'espace pour les données et les sauvegardes.
 
 ```bash
 sudo apt update
@@ -18,14 +18,14 @@ sudo apt install nginx postgresql php-fpm php-pgsql php-curl php-mbstring git
 
 ## 2. Compte et base PostgreSQL
 
-Générez un mot de passe fort, puis créez le rôle et la base :
+Génère un mot de passe fort, puis crée le rôle et la base :
 
 ```bash
 sudo -u postgres createuser --pwprompt healthconnect
 sudo -u postgres createdb --owner=healthconnect health_connect
 ```
 
-Appliquez les migrations génériques dans cet ordre :
+Applique les migrations dans cet ordre :
 
 ```bash
 for migration in \
@@ -40,8 +40,9 @@ do
 done
 ```
 
-`003_import_snapshot_20260912.sql` est une migration historique d'instance. Ne
-l'exécutez que si vous avez préparé la base brute correspondante.
+La numérotation conserve volontairement un trou : l'ancienne migration 003
+était spécifique à une instance historique et n'appartient pas à la
+distribution réutilisable.
 
 ## 3. Configuration de l'application
 
@@ -51,20 +52,20 @@ sudo install -m 0640 -o root -g www-data .env.example /etc/health-connect/app.en
 sudoedit /etc/health-connect/app.env
 ```
 
-Encodez le mot de passe PostgreSQL sans retour à la ligne :
+Encode le mot de passe PostgreSQL sans retour à la ligne :
 
 ```bash
 printf '%s' 'MOT_DE_PASSE' | base64
 ```
 
-Pour protéger le dashboard, générez `WEB_PASSWORD_HASH_B64` localement :
+Pour protéger le dashboard, génère `WEB_PASSWORD_HASH_B64` localement :
 
 ```bash
 php -r 'echo base64_encode(password_hash($argv[1], PASSWORD_DEFAULT)), PHP_EOL;' 'MOT_DE_PASSE_WEB'
 ```
 
-Une valeur Web vide désactive l'authentification. Cette option n'est acceptable
-que pendant un test sur un réseau de confiance.
+Une valeur Web vide désactive l'authentification. Ne l'utilise que pour un test
+local temporaire sur un réseau de confiance.
 
 ## 4. Déploiement PHP/Nginx
 
@@ -78,7 +79,7 @@ sudo find /var/www/health-connect -type d -exec chmod 0755 {} +
 sudo find /var/www/health-connect -type f -exec chmod 0644 {} +
 ```
 
-Adaptez `server_name`, la version PHP-FPM et les limites dans
+Adapte `server_name`, la version PHP-FPM et les limites dans
 `infra/nginx/health-connect.conf`, puis :
 
 ```bash
@@ -86,54 +87,66 @@ sudo cp infra/nginx/health-connect-api-limit.conf /etc/nginx/conf.d/
 sudo cp infra/nginx/health-connect.conf /etc/nginx/sites-available/health-connect
 sudo ln -s /etc/nginx/sites-available/health-connect /etc/nginx/sites-enabled/health-connect
 sudo nginx -t
-sudo systemctl reload nginx php8.4-fpm
+sudo systemctl reload nginx
 ```
 
-Le reverse proxy externe doit conserver l'hôte, terminer TLS et ne pas mettre en
-cache les routes `/api/`.
+Si tu utilises un reverse proxy externe, il doit conserver l'hôte, terminer TLS
+et ne pas mettre en cache les routes `/api/`.
 
 ## 5. Enregistrer un terminal Android
 
-Générez un jeton compatible, puis son empreinte :
+Génère un jeton, puis son empreinte SHA-256 :
 
 ```bash
 DEVICE_TOKEN="$(openssl rand -hex 32)"
 TOKEN_HASH="$(printf '%s' "$DEVICE_TOKEN" | sha256sum | cut -d' ' -f1)"
-printf 'Conservez ce jeton dans un gestionnaire de secrets : %s\n' "$DEVICE_TOKEN"
+printf 'Conserve ce jeton dans un gestionnaire de secrets : %s\n' "$DEVICE_TOKEN"
 ```
 
-Insérez uniquement l'empreinte dans PostgreSQL :
+Insère uniquement l'empreinte dans PostgreSQL :
 
 ```sql
 INSERT INTO api.devices (device_name, token_hash)
-VALUES ('Pixel', 'EMPREINTE_SHA256');
+VALUES ('Mon téléphone', 'EMPREINTE_SHA256');
 ```
 
-Le jeton en clair est provisionné dans l'application Android et chiffré avec
-Android Keystore. Consultez [ANDROID.md](ANDROID.md).
+Compile ensuite l'application avec l'URL publique de ton API :
+
+```bash
+cd android
+export PIZID_API_BASE_URL=https://health.example.org/api/v1
+./gradlew :app:assembleDebug
+```
+
+Le jeton en clair est provisionné dans l'application puis chiffré avec Android
+Keystore. Consulte [ANDROID.md](ANDROID.md).
 
 ## 6. Google Health facultatif
 
-Créez un client OAuth Web avec une URI de redirection correspondant exactement
-à votre domaine. Installez ensuite ses valeurs sans committer le JSON OAuth :
+Crée un client OAuth Web avec une URI de redirection correspondant exactement à
+ton domaine, puis installe les valeurs sans committer le JSON OAuth :
 
 ```bash
 sudo php infra/scripts/configure_google_health_env.php \
-  /chemin/client_secret.json /etc/health-connect/app.env
+  /chemin/client_secret.json \
+  /etc/health-connect/app.env \
+  https://health.example.org/api/v1/google-health/callback
+
 sudo cp infra/systemd/health-connect-google-health.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now health-connect-google-health.timer
 ```
 
-Vérifiez et adaptez l'URI de redirection codée dans le script avant exécution.
+Le fichier OAuth reste hors du dépôt et doit être protégé comme un secret.
 
 ## 7. Contrôles
 
 ```bash
 curl -fsS https://health.example.org/api/v1/health
 curl -I https://health.example.org/dashboard
-systemctl status nginx php8.4-fpm postgresql
+systemctl status nginx postgresql
 ```
 
-Le premier appel doit renvoyer `{"status":"ready"}` et le dashboard doit
-envoyer `Cache-Control: no-store` ainsi que `X-Robots-Tag: noindex`.
+Le premier appel doit renvoyer `{"status":"ready"}`. Vérifie également que le
+dashboard utilise `Cache-Control: no-store`, qu'il n'est pas indexé et que
+l'authentification Web est activée avant toute exposition publique.
