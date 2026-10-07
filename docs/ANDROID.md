@@ -3,21 +3,40 @@
 ## Rôle
 
 L'application `org.pizid.healthconnectsync` lit Health Connect et pousse les
-données autorisées vers l'API personnelle. Elle sait aussi recevoir un export
+données autorisées vers l'API auto-hébergée. Elle sait aussi recevoir un export
 RENPHO via le menu Android **Partager**.
 
 Le projet cible l'API Android 37 et requiert un JDK 17.
 
 ## Configurer l'URL
 
-L'URL de l'API est définie dans `android/app/build.gradle.kts` par
-`BuildConfig.API_BASE_URL`. Remplacez-la par votre URL HTTPS avant compilation.
+L'URL de l'API est injectée à la compilation dans `BuildConfig.API_BASE_URL`.
+Elle n'est pas liée à une instance particulière.
+
+Tu peux la fournir via une propriété Gradle :
+
+```bash
+cd android
+./gradlew :app:assembleDebug -PPIZID_API_BASE_URL=https://health.example.org/api/v1
+```
+
+ou via une variable d'environnement :
+
+```bash
+export PIZID_API_BASE_URL=https://health.example.org/api/v1
+./gradlew :app:assembleDebug
+```
+
+Sans configuration, la valeur d'exemple `https://health.example.org/api/v1`
+est utilisée afin d'éviter qu'un build réutilisable pointe accidentellement
+vers l'instance d'un autre utilisateur.
 
 ## Compiler et installer
 
 ```bash
 cd android
 export JAVA_HOME=/path/to/jdk-17
+export PIZID_API_BASE_URL=https://health.example.org/api/v1
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -36,8 +55,8 @@ adb shell am start \
 ```
 
 Le jeton est immédiatement chiffré avec une clé non exportable Android Keystore
-et retiré de l'intent. Évitez de laisser cette commande dans l'historique du
-shell ; préférez une variable temporaire ou une saisie sécurisée.
+et retiré de l'intent. Évite de laisser cette commande dans l'historique du
+shell ; préfère une variable temporaire ou une saisie sécurisée.
 
 ## Autorisations
 
@@ -74,9 +93,9 @@ synchronisée avant que sa route GPS ne soit autorisée.
 
 ## Import RENPHO
 
-Dans RENPHO Health, exportez les mesures, choisissez **Partager**, puis
-sélectionnez Health Sync Pizid. L'application transmet le fichier au endpoint
-authentifié `/api/v1/sync/renpho` et affiche le bilan des insertions/mises à jour.
+Dans RENPHO Health, exporte les mesures, choisis **Partager**, puis sélectionne
+Health Sync Pizid. L'application transmet le fichier au endpoint authentifié
+`/api/v1/sync/renpho` et affiche le bilan des insertions/mises à jour.
 
 ## Diagnostic ADB
 
@@ -87,5 +106,5 @@ adb shell dumpsys alarm | grep org.pizid.healthconnectsync
 adb shell dumpsys jobscheduler | grep -A10 org.pizid.healthconnectsync
 ```
 
-En cas d'échec, comparer trois informations : le message affiché dans
+En cas d'échec, compare trois informations : le message affiché dans
 l'application, le curseur local et la dernière activité reçue par le serveur.
