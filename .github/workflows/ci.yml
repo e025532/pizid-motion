@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: PHP syntax
+        run: find src public bin infra -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Reject common private artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden="$(git ls-files | grep -E '(^|/)(\.env($|\.)|.*\.(db|sqlite|sqlite3|csv|gpx|tcx|jks|keystore|apk|aab|pem|key|p12|pfx)$|client_secret.*\.json$|credentials.*\.json$)' || true)"
+          if [[ -n "$forbidden" ]]; then
+            echo "Tracked private/sensitive artifacts:"
+            echo "$forbidden"
+            exit 1
+          fi
+
+      - name: Reject instance-specific endpoint
+        shell: bash
+        run: |
+          if grep -R --line-number --exclude-dir=.git 'health\.home\.pizid\.org' .; then
+            echo "Instance-specific endpoint found."
+            exit 1
+          fi
