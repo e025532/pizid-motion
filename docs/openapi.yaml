@@ -3,7 +3,7 @@ info:
   title: Health Connect Sync API
   version: 1.0.0
 servers:
-  - url: https://health.home.pizid.org/api/v1
+  - url: https://health.example.org/api/v1
 paths:
   /health:
     get:

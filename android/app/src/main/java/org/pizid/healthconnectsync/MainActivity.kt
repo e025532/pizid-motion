@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
             setTextColor(Color.rgb(23, 105, 170))
         })
         content.addView(TextView(this).apply {
-            text = "Health Connect → health.home.pizid.org"
+            text = "Health Connect → API Pizid Motion"
             textSize = 15f
             setPadding(0, dp(8), 0, dp(24))
         })

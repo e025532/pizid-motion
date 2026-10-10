@@ -27,7 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          forbidden="$(git ls-files | grep -E '(^|/)(\.env($|\.)|.*\.(db|sqlite|sqlite3|csv|gpx|tcx|jks|keystore|apk|aab|pem|key|p12|pfx)$|client_secret.*\.json$|credentials.*\.json$)' || true)"
+          forbidden="$(
+            git ls-files |
+            grep -E '(^|/)(\.env($|\.)|.*\.(db|sqlite|sqlite3|csv|gpx|tcx|jks|keystore|apk|aab|pem|key|p12|pfx)$|client_secret.*\.json$|credentials.*\.json$)' |
+            grep -vE '(^|/)\.env\.example$' || true
+          )"
           if [[ -n "$forbidden" ]]; then
             echo "Tracked private/sensitive artifacts:"
             echo "$forbidden"
