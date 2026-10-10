@@ -37,8 +37,7 @@ WITH session_candidates AS (
 ), route_ordered AS (
     SELECT s.record_id, s.sample_at, s.sample_id, s.latitude, s.longitude, s.altitude_m,
            lag(s.latitude) OVER (PARTITION BY s.record_id ORDER BY s.sample_at, s.sample_id) AS prev_lat,
-           lag(s.longitude) OVER (PARTITION BY s.record_id ORDER BY s.sample_at, s.sample_id) AS prev_lon,
-           lag(s.altitude_m) OVER (PARTITION BY s.record_id ORDER BY s.sample_at, s.sample_id) AS prev_alt
+           lag(s.longitude) OVER (PARTITION BY s.record_id ORDER BY s.sample_at, s.sample_id) AS prev_lon
       FROM health.samples s JOIN selected a ON a.record_id = s.record_id
      WHERE s.sample_type IN ('exercise_route', 'exercise_route_location')
        AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
@@ -49,11 +48,26 @@ WITH session_candidates AS (
                  power(sin(radians(latitude - prev_lat) / 2), 2) +
                  cos(radians(prev_lat)) * cos(radians(latitude)) *
                  power(sin(radians(longitude - prev_lon) / 2), 2)))) END) AS route_distance_m,
-           sum(CASE WHEN altitude_m > prev_alt THEN altitude_m - prev_alt ELSE 0 END) AS ascent_m,
            min(altitude_m) AS min_altitude_m, max(altitude_m) AS max_altitude_m,
            (array_agg(latitude ORDER BY sample_at, sample_id))[1] AS start_latitude,
            (array_agg(longitude ORDER BY sample_at, sample_id))[1] AS start_longitude
       FROM route_ordered GROUP BY record_id
+), altitude_buckets AS (
+    SELECT record_id, floor(extract(epoch FROM sample_at) / 180) AS bucket,
+           avg(altitude_m) AS altitude_m
+      FROM route_ordered
+     WHERE altitude_m IS NOT NULL
+     GROUP BY record_id, floor(extract(epoch FROM sample_at) / 180)
+), altitude_deltas AS (
+    SELECT b.*,
+           lag(b.altitude_m) OVER (PARTITION BY b.record_id ORDER BY b.bucket) AS previous_altitude_m
+      FROM altitude_buckets b
+), elevation_stats AS (
+    SELECT record_id,
+           sum(CASE WHEN altitude_m > previous_altitude_m
+                    THEN altitude_m - previous_altitude_m ELSE 0 END) AS ascent_m
+      FROM altitude_deltas
+     GROUP BY record_id
 )
 SELECT a.record_id::text AS id, a.record_key, a.start_at, a.end_at,
        extract(epoch FROM (a.end_at - a.start_at))::integer AS duration_s,
@@ -61,7 +75,7 @@ SELECT a.record_id::text AS id, a.record_key, a.start_at, a.end_at,
        coalesce(nullif(a.payload->>'title', ''), nullif(a.payload->>'notes', '')) AS title,
        a.source_app_name, a.source_app_package,
        coalesce(rs.route_distance_m, rm.measured_distance_m, 0) AS distance_m,
-       coalesce(rs.ascent_m, rm.measured_ascent_m, 0) AS ascent_m,
+       coalesce(es.ascent_m, rm.measured_ascent_m, 0) AS ascent_m,
        rs.min_altitude_m, rs.max_altitude_m, coalesce(rs.route_points, 0) AS route_points,
        rs.start_latitude, rs.start_longitude,
        coalesce(nullif(rm.active_calories_kcal, 0), rm.total_calories_kcal, 0) AS calories_kcal,
@@ -69,7 +83,38 @@ SELECT a.record_id::text AS id, a.record_key, a.start_at, a.end_at,
        hm.avg_hr, hm.max_hr
   FROM selected a
   JOIN route_stats rs ON rs.record_id = a.record_id AND rs.route_points > 1
+  LEFT JOIN elevation_stats es ON es.record_id = a.record_id
   LEFT JOIN LATERAL (
+    WITH metric_candidates AS (
+      SELECT m.*,
+             CASE WHEN m.record_type IN ('active_calories_burned','total_calories_burned')
+                  THEN greatest(0, extract(epoch FROM least(m.end_at, a.end_at) - greatest(m.start_at, a.start_at)))
+                  ELSE 1 END AS coverage
+        FROM health.records m
+       WHERE m.record_type IN ('distance','active_calories_burned','total_calories_burned','elevation_gained','steps')
+         AND NOT m.is_deleted AND m.source_app_package = a.source_app_package
+         AND ((m.record_type IN ('active_calories_burned','total_calories_burned')
+               AND m.start_at < a.end_at AND m.end_at > a.start_at)
+           OR (m.record_type NOT IN ('active_calories_burned','total_calories_burned')
+               AND m.start_at BETWEEN a.start_at AND a.end_at))
+    ), metric_streams AS (
+      SELECT record_type, source_table, sum(coverage) AS coverage,
+             count(*) AS record_count, max(updated_at) AS newest
+        FROM metric_candidates
+       GROUP BY record_type, source_table
+    ), preferred_streams AS (
+      SELECT DISTINCT ON (record_type) record_type, source_table
+        FROM metric_streams
+       ORDER BY record_type, coverage DESC,
+                (source_table = 'android_api') DESC, record_count DESC, newest DESC
+    ), metrics AS (
+      SELECT c.*, row_number() OVER (
+                 PARTITION BY c.record_type, c.start_at, c.end_at
+                 ORDER BY c.updated_at DESC, c.record_id DESC
+             ) AS duplicate_rank
+        FROM metric_candidates c
+        JOIN preferred_streams p USING (record_type, source_table)
+    )
     SELECT sum(CASE WHEN m.record_type = 'distance' THEN CASE
           WHEN jsonb_typeof(m.payload->'distance') = 'object' AND nullif(m.payload#>>'{distance,in_meters}', '') IS NOT NULL
             THEN (m.payload#>>'{distance,in_meters}')::double precision
@@ -98,13 +143,8 @@ SELECT a.record_id::text AS id, a.record_key, a.start_at, a.end_at,
             THEN (m.payload->>'elevation')::double precision ELSE 0 END ELSE 0 END) AS measured_ascent_m,
       sum(CASE WHEN m.record_type = 'steps' AND coalesce(m.payload->>'count', '') ~ '^\d+$'
             THEN (m.payload->>'count')::bigint ELSE 0 END) AS steps
-      FROM health.records m
-     WHERE m.record_type IN ('distance','active_calories_burned','total_calories_burned','elevation_gained','steps')
-       AND NOT m.is_deleted AND m.source_app_package = a.source_app_package
-      AND ((m.record_type IN ('active_calories_burned','total_calories_burned')
-            AND m.start_at < a.end_at AND m.end_at > a.start_at)
-        OR (m.record_type NOT IN ('active_calories_burned','total_calories_burned')
-            AND m.start_at BETWEEN a.start_at AND a.end_at))
+      FROM metrics m
+     WHERE m.duplicate_rank = 1
   ) rm ON true
   LEFT JOIN LATERAL (
     SELECT avg(hs.numeric_value) AS avg_hr, max(hs.numeric_value) AS max_hr
@@ -183,7 +223,7 @@ SQL;
         $activity = $rows[0];
         $route = $this->route((int) $id);
         $activity['route'] = $this->decimate($route, 3500);
-        $activity['splits'] = $this->splits($route);
+        $activity['splits'] = $this->splits($this->smoothRouteAltitude($route));
         $activity['pace_profile'] = $this->paceProfile($route);
         $splitPaces = array_column($activity['splits'], 'pace_s_per_km');
         $activity['pace_stats'] = [
@@ -304,7 +344,7 @@ SQL;
 
         $steps = $this->dailyRecordMetric('steps', $number('count'), 'sum', $from);
         $distance = $this->dailyRecordMetric('distance', $numberOrObject('distance', 'in_meters'), 'sum', $from, 0.001);
-        $calories = $this->dailyRecordMetric('total_calories_burned', $numberOrObject('energy', 'in_calories'), 'sum', $from, 0.001);
+        $calories = $this->dailyPreferredIntervalMetric('total_calories_burned', $numberOrObject('energy', 'in_calories'), $from, 0.001);
         $floors = $this->dailyRecordMetric('floors_climbed', $number('floors'), 'sum', $from);
 
         $weight = $this->dailyRecordMetric('weight', $numberOrObject('weight', 'in_grams'), 'avg', $from, 0.001);
@@ -437,6 +477,52 @@ SQL;
                  )
                  SELECT day::text AS date, round({$aggregate}(value)::numeric, 3)::double precision AS value
                    FROM points WHERE value IS NOT NULL
+                  GROUP BY day ORDER BY day";
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute(['type' => $type, 'from_date' => $from, 'multiplier' => $multiplier]);
+        return array_map(static fn (array $row): array => ['date' => $row['date'], 'value' => (float) $row['value']], $statement->fetchAll());
+    }
+
+    private function dailyPreferredIntervalMetric(string $type, string $expression, string $from, float $multiplier = 1.0): array
+    {
+        $sql = "WITH candidates AS (
+                    SELECT record_id, source_app_package, source_table, start_at, end_at, updated_at,
+                           (coalesce(start_at, end_at) AT TIME ZONE 'Europe/Paris')::date AS day,
+                           ({$expression}) * :multiplier AS value,
+                           greatest(1, extract(epoch FROM end_at - start_at)) AS coverage
+                      FROM health.records
+                     WHERE record_type = :type AND NOT is_deleted
+                       AND coalesce(start_at, end_at) >= :from_date::timestamptz
+                 ), streams AS (
+                    SELECT day, source_app_package, source_table,
+                           sum(coverage) AS coverage, count(*) AS record_count,
+                           max(updated_at) AS newest
+                      FROM candidates WHERE value IS NOT NULL
+                     GROUP BY day, source_app_package, source_table
+                 ), preferred AS (
+                    SELECT day, source_app_package, source_table
+                      FROM (
+                        SELECT s.*, row_number() OVER (
+                            PARTITION BY day
+                            ORDER BY coverage DESC, (source_table = 'android_api') DESC,
+                                     record_count DESC, newest DESC
+                        ) AS stream_rank
+                          FROM streams s
+                      ) ranked
+                     WHERE stream_rank = 1
+                 ), points AS (
+                    SELECT c.*, row_number() OVER (
+                        PARTITION BY c.day, c.start_at, c.end_at
+                        ORDER BY c.updated_at DESC, c.record_id DESC
+                    ) AS duplicate_rank
+                      FROM candidates c
+                      JOIN preferred p
+                        ON p.day = c.day
+                       AND p.source_table = c.source_table
+                       AND p.source_app_package IS NOT DISTINCT FROM c.source_app_package
+                 )
+                 SELECT day::text AS date, round(sum(value)::numeric, 3)::double precision AS value
+                   FROM points WHERE value IS NOT NULL AND duplicate_rank = 1
                   GROUP BY day ORDER BY day";
         $statement = $this->pdo->prepare($sql);
         $statement->execute(['type' => $type, 'from_date' => $from, 'multiplier' => $multiplier]);
@@ -643,6 +729,35 @@ SQL;
             }
         }
         return $splits;
+    }
+
+    private function smoothRouteAltitude(array $route, int $radiusPoints = 180): array
+    {
+        if (count($route) < 2) return $route;
+        $left = $right = 0;
+        $sum = 0.0;
+        $count = 0;
+        $smoothed = $route;
+        foreach ($route as $index => $point) {
+            $minimum = max(0, $index - $radiusPoints);
+            $maximum = min(count($route) - 1, $index + $radiusPoints);
+            while ($left < $right && $left < $minimum) {
+                if ($route[$left]['alt'] !== null) {
+                    $sum -= (float) $route[$left]['alt'];
+                    $count--;
+                }
+                $left++;
+            }
+            while ($right <= $maximum) {
+                if ($route[$right]['alt'] !== null) {
+                    $sum += (float) $route[$right]['alt'];
+                    $count++;
+                }
+                $right++;
+            }
+            $smoothed[$index]['alt'] = $count > 0 ? $sum / $count : $point['alt'];
+        }
+        return $smoothed;
     }
 
     private function paceProfile(array $route, float $windowMeters = 600.0, int $limit = 500): array

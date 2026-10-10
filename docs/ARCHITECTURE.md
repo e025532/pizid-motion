@@ -79,6 +79,18 @@ Une activité n'est affichée que si une route GPS valide est reliée à sa sess
 Health Connect. La distance de route est prioritaire, puis la distance mesurée
 par la même application source. Cela évite les doublons issus de services tiers.
 
+Une même mesure peut être présente à la fois dans l'import historique et dans
+le flux Android, avec des identifiants ou une granularité différents. Pour les
+calories et les autres mesures associées à une sortie, l'analyse retient le
+flux qui couvre le mieux l'intervalle, puis élimine les doublons temporels. La
+courbe quotidienne des calories applique la même sélection, jour par jour, afin
+de ne pas additionner deux représentations Fitbit de la même dépense.
+
+Le dénivelé GPS n'est pas calculé sur les variations brutes d'altitude : celles-ci
+additionneraient chaque oscillation du capteur. L'altitude est moyennée par
+tranches de trois minutes avant de sommer les variations positives. Les altitudes
+minimale et maximale brutes restent disponibles à titre de contrôle.
+
 Le détail d'activité produit :
 
 - une allure lissée spatialement ;
