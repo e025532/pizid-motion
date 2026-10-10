@@ -74,6 +74,14 @@ routes d'exercice séparément.
 - envoie les enregistrements et suppressions par lots ;
 - fonctionne avec WorkManager lorsque le réseau est disponible.
 
+Le curseur et les checkpoints restent dans de petites préférences Android. La
+correspondance entre identifiants et types d'enregistrement est conservée dans
+SQLite, afin qu'une longue histoire Health Connect ne fasse pas grossir la
+mémoire de l'application. Lors de la première exécution de la version 0.4.4 ou
+ultérieure, l'ancien index est migré en continu vers SQLite ; le fichier XML
+d'origine est gardé dans le stockage privé de l'application comme copie de
+récupération.
+
 ### Synchronisation prioritaire
 
 Le bouton correspondant autorise une alarme exacte. Elle réveille brièvement
@@ -108,3 +116,9 @@ adb shell dumpsys jobscheduler | grep -A10 org.pizid.healthconnectsync
 
 En cas d'échec, compare trois informations : le message affiché dans
 l'application, le curseur local et la dernière activité reçue par le serveur.
+
+Une erreur `OutOfMemoryError` dans `SharedPreferencesImpl` indique une version
+antérieure à 0.4.4 ou une migration inachevée. Vérifiez la version installée,
+relancez une synchronisation, puis contrôlez la présence de
+`databases/record_types.db` et `shared_prefs/sync_state_v2.xml` dans le stockage
+privé de l'application.

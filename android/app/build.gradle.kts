@@ -15,8 +15,8 @@ android {
         applicationId = "org.pizid.healthconnectsync"
         minSdk = 37
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.4.3"
+        versionCode = 10
+        versionName = "0.4.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val escapedApiBaseUrl = apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")

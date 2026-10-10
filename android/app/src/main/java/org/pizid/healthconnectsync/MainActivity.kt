@@ -225,7 +225,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshLastSync() {
-        val timestamp = getSharedPreferences("sync_state", MODE_PRIVATE)
+        val timestamp = getSharedPreferences(SyncStateStore.PREFS_NAME, MODE_PRIVATE)
             .getLong(SyncEngine.PREF_LAST_SUCCESS, 0L)
         lastSync.text = if (timestamp > 0L) {
             LAST_SYNC_FORMAT.format(Instant.ofEpochMilli(timestamp))

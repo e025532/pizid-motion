@@ -29,13 +29,15 @@ data class SyncResult(val records: Int, val deletions: Int, val message: String)
 class SyncEngine(private val context: Context) {
     private val manager = context.getSystemService(HealthConnectManager::class.java)
         ?: error("Health Connect indisponible")
-    private val prefs = context.getSharedPreferences("sync_state", Context.MODE_PRIVATE)
+    private val prefs = SyncStateStore.preferences(context)
+    private val recordTypes = RecordTypeStore(context)
     private val executor = Executor { command -> command.run() }
 
     suspend fun run(onProgress: (SyncProgress) -> Unit = {}): SyncResult {
         val requestedAt = System.currentTimeMillis()
         return RUN_MUTEX.withLock {
         withContext(Dispatchers.IO) {
+        SyncStateStore.migrateLegacy(context, recordTypes)
         fun report(message: String, percent: Int, active: Boolean = true, indeterminate: Boolean = false) {
             val progress = SyncProgress(message, percent.coerceIn(0, 100), active, indeterminate)
             SyncMonitor.publish(progress)
@@ -142,8 +144,8 @@ class SyncEngine(private val context: Context) {
                 .setPageSize(500)
             if (pageToken != -1L) builder.setPageToken(pageToken)
             val response = readRecords(builder.build())
+            recordTypes.rememberAll(response.records.map { it.metadata.id to spec.type })
             val encoded = response.records.map { record ->
-                rememberType(record.metadata.id, spec.type)
                 RecordJson.encode(record, spec.type)
             }
             sendChunked(api, encoded)
@@ -163,12 +165,13 @@ class SyncEngine(private val context: Context) {
         var deletions = 0
         do {
             val response = getChangeLogs(ChangeLogsRequest.Builder(cursor).setPageSize(500).build())
-            val encoded = response.upsertedRecords.map { record ->
+            val typedRecords = response.upsertedRecords.map { record ->
                 val type = RecordCatalog.all.firstOrNull { it.recordClass == record.javaClass }?.type
                     ?: classToType(record.javaClass.simpleName)
-                rememberType(record.metadata.id, type)
-                RecordJson.encode(record, type)
+                record to type
             }
+            recordTypes.rememberAll(typedRecords.map { (record, type) -> record.metadata.id to type })
+            val encoded = typedRecords.map { (record, type) -> RecordJson.encode(record, type) }
             // Some Health Connect providers emit an old deletion and the current
             // version of the same logical record in one change page. The upsert is
             // authoritative; forwarding both lets the later deletion hide it again.
@@ -177,7 +180,7 @@ class SyncEngine(private val context: Context) {
                 .filterNot { it.deletedRecordId in upsertedIds }
                 .map { deletedLog ->
                 JSONObject()
-                    .put("type", recalledType(deletedLog.deletedRecordId) ?: "unknown")
+                    .put("type", recordTypes.recall(deletedLog.deletedRecordId) ?: "unknown")
                     .put("id", deletedLog.deletedRecordId)
                     .put("deleted_at", deletedLog.deletedTime.toString())
                 }
@@ -248,12 +251,6 @@ class SyncEngine(private val context: Context) {
             override fun onResult(result: T) = success(result)
             override fun onError(error: HealthConnectException) = failure(error)
         }
-
-    private fun rememberType(id: String, type: String) {
-        prefs.edit().putString("record_type_$id", type).apply()
-    }
-
-    private fun recalledType(id: String): String? = prefs.getString("record_type_$id", null)
 
     private fun classToType(simpleName: String): String = simpleName.removeSuffix("Record")
         .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").lowercase()
